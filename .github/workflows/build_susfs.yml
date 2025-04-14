@@ -1,0 +1,184 @@
+name: build_susfs
+run-name: susfs build for ${{ inputs.CODENAME || github.event.inputs.CODENAME }} ${{ inputs.ROM || github.event.inputs.ROM }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      CODENAME:
+        description: 'Device Codename (alioth/apollo)'
+        default: 'alioth'
+        required: true
+        type: choice
+        options:
+          - alioth
+          - apollo
+      ROM:
+        description: 'ROM Type (MIUI/AOSP)'
+        default: 'MIUI'
+        required: true
+        type: choice
+        options:
+          - MIUI
+          - AOSP
+      clang:
+        description: 'Clang option'
+        required: true
+        default: 'ZyC Stable'
+        type: choice
+        options:
+          - 'ZyC Stable'
+          - 'WeebX Stable'
+          - 'WeebX Beta'
+  workflow_call:
+    inputs:
+      CODENAME:
+        description: 'Device Codename (alioth/apollo)'
+        required: true
+        type: string
+      ROM:
+        description: 'ROM Type (MIUI/AOSP)'
+        required: true
+        type: string
+      clang:
+        description: 'Clang option'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      CODENAME: ${{ inputs.CODENAME || github.event.inputs.CODENAME }}
+      ROM: ${{ inputs.ROM || github.event.inputs.ROM }}
+      clang: ${{ inputs.clang || github.event.inputs.clang }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: 'apolio_susfs155'
+        fetch-depth: 1
+        submodules: 'recursive'
+
+    - name: Setup Clang cache
+      id: clang-cache
+      uses: actions/cache@v3
+      with:
+        path: clang
+        key: clang-${{ env.clang }}-${{ hashFiles('**/clang.txt') }}
+        restore-keys: |
+          clang-${{ env.clang }}-
+
+    - name: Set up environment
+      run: |
+        # Setup artifact name
+        TIME="$(date "+%Y%m%d%H%M")"
+        ZIP_NAME="RealKing-susfs-${{ env.CODENAME }}-${{ env.ROM }}-$TIME"
+        echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+        # Setup clang only if not cached
+        if [ ! -d "clang" ]; then
+          if [[ "${{ env.clang }}" == "ZyC Stable" ]]; then
+            CLANG_URL=$(curl -s https://raw.githubusercontent.com/v3kt0r-87/Clang-Stable/main/clang-zyc.txt)
+          elif [[ "${{ env.clang }}" == "WeebX Stable" ]]; then
+            CLANG_URL=$(curl -s https://raw.githubusercontent.com/v3kt0r-87/Clang-Stable/main/clang-weebx.txt)
+          elif [[ "${{ env.clang }}" == "WeebX Beta" ]]; then
+            CLANG_URL=$(curl -s https://raw.githubusercontent.com/v3kt0r-87/Clang-Stable/main/clang-weebx-beta.txt)
+          else
+            echo "Invalid Clang option. Please use 'ZyC Stable', 'WeebX Stable', or 'WeebX Beta'."
+            exit 1
+          fi
+          wget "$CLANG_URL" -qO "clang.tar.gz"
+          mkdir clang && tar -xvf clang.tar.gz -C clang && rm -rf clang.tar.gz
+        else
+          echo "Using cached Clang toolchain"
+        fi
+
+        # Setup KernelSU-Next with susfs
+        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs-dev
+
+        # Add other ksu manager support
+        cd KernelSU-Next
+        curl -Ls https://raw.githubusercontent.com/KOWX712/files/refs/heads/main/0001-add-other-ksu-manager-support.patch | patch -p1
+        cd ..
+
+    - name: Build kernel
+      run: |
+        # Set linker and path variables
+        LINKER="lld"
+        DIR=$(readlink -f .)
+        MAIN=$(readlink -f "${DIR}/..")
+        export PATH="$DIR/clang/bin:$PATH"
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export KBUILD_COMPILER_STRING="$($DIR/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
+        KERNEL_DIR=$(pwd)
+        ZIMAGE_DIR="$KERNEL_DIR/out/arch/arm64/boot"
+        MAKE="./makeparallel"
+        BUILD_START=$(date +"%s")
+        red='\033[0;31m'
+        nocol='\033[0m'
+
+        # Set device variables
+        if [[ "${{ env.CODENAME }}" == "alioth" ]]; then
+          KERNEL_DEFCONFIG=alioth_defconfig
+          DEVICE_NAME1="alioth"
+          DEVICE_NAME2="aliothin"
+          IS_SLOT_DEVICE=1
+          VENDOR_BOOT_LINES_REMOVED=0
+        elif [[ "${{ env.CODENAME }}" == "apollo" ]]; then
+          KERNEL_DEFCONFIG=apollo_defconfig
+          DEVICE_NAME1="apollo"
+          DEVICE_NAME2="apollon"
+          IS_SLOT_DEVICE=0
+          VENDOR_BOOT_LINES_REMOVED=1
+        else
+          echo "Invalid device codename. Please use 'alioth' or 'apollo'"
+          exit 1
+        fi
+
+        # Set ROM variables
+        if [[ "${{ env.ROM }}" == "MIUI" ]]; then
+          echo -e "\e[31mChanging panel dimensions for HyperOS...\e[0m"
+          if [[ "${{ env.CODENAME }}" == "apollo" ]]; then
+            sed -i 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <700>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
+            sed -i 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1540>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
+          elif [[ "${{ env.CODENAME }}" == "alioth" ]]; then
+            sed -i 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <700>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-k11a-38-08-0a-dsc-cmd.dtsi
+            sed -i 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1540>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-k11a-38-08-0a-dsc-cmd.dtsi
+          fi
+        elif [[ "${{ env.ROM }}" == "AOSP" ]]; then
+          echo -e "\e[32mNo modifications needed for AOSP.\e[0m"
+        else
+          echo "Invalid ROM type. Please use 'MIUI' or 'AOSP'."
+          exit 1
+        fi
+
+        # Modify anykernel.sh based on device parameters
+        sed -i "s/device.name1=.*/device.name1=$DEVICE_NAME1/" anykernel/anykernel.sh
+        sed -i "s/device.name2=.*/device.name2=$DEVICE_NAME2/" anykernel/anykernel.sh
+        sed -i "s/is_slot_device=.*/is_slot_device=$IS_SLOT_DEVICE/" anykernel/anykernel.sh
+
+        # Remove vendor_boot block if necessary
+        if [ "$VENDOR_BOOT_LINES_REMOVED" -eq 1 ]; then
+          sed -i '/## vendor_boot shell variables/,/## end vendor_boot install/d' anykernel/anykernel.sh
+        fi
+
+        # Kernel compilation
+        make $KERNEL_DEFCONFIG O=out CC=clang
+        make -j$(nproc --all) O=out CC=clang ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- NM=llvm-nm OBJDUMP=llvm-objdump STRIP=llvm-strip
+
+        # Prepare artifact directory
+        mkdir -p artifact
+        cp -fp $ZIMAGE_DIR/Image.gz artifact
+        cp -fp $ZIMAGE_DIR/dtbo.img artifact
+        cp -fp $ZIMAGE_DIR/dtb artifact
+        cp -rp ./anykernel/* artifact
+
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ZIP_NAME }}
+        path: artifact
+        include-hidden-files: true
