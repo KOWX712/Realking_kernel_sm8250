@@ -1,0 +1,64 @@
+name: build_susfs
+run-name: susfs build for all devices
+
+on:
+  workflow_dispatch:
+    inputs:
+      clang:
+        description: 'Clang option'
+        required: true
+        default: 'ZyC Stable'
+        type: choice
+        options:
+          - 'ZyC Stable'
+          - 'WeebX Stable'
+          - 'WeebX Beta'
+
+jobs:
+  build_alioth_miui:
+    uses: KOWX712/Realking_kernel_sm8250/.github/workflows/build_susfs.yml@apolio_susfs155
+    with:
+      CODENAME: 'alioth'
+      ROM: 'MIUI'
+      clang: ${{ github.event.inputs.clang }}
+
+  build_alioth_aosp:
+    uses: KOWX712/Realking_kernel_sm8250/.github/workflows/build_susfs.yml@apolio_susfs155
+    with:
+      CODENAME: 'alioth'
+      ROM: 'AOSP'
+      clang: ${{ github.event.inputs.clang }}
+
+  build_apollo_miui:
+    uses: KOWX712/Realking_kernel_sm8250/.github/workflows/build_susfs.yml@apolio_susfs155
+    with:
+      CODENAME: 'apollo'
+      ROM: 'MIUI'
+      clang: ${{ github.event.inputs.clang }}
+
+  build_apollo_aosp:
+    uses: KOWX712/Realking_kernel_sm8250/.github/workflows/build_susfs.yml@apolio_susfs155
+    with:
+      CODENAME: 'apollo'
+      ROM: 'AOSP'
+      clang: ${{ github.event.inputs.clang }}
+
+  build_munch_miui:
+    uses: KOWX712/Realking_kernel_sm8250/.github/workflows/build_susfs.yml@m-staging_susfs155
+    with:
+      CODENAME: 'munch'
+      ROM: 'MIUI'
+      clang: ${{ github.event.inputs.clang }}
+  
+  build_munch_aosp:
+    uses: KOWX712/Realking_kernel_sm8250/.github/workflows/build_susfs.yml@m-staging_susfs155
+    with:
+      CODENAME: 'munch'
+      ROM: 'AOSP'
+      clang: ${{ github.event.inputs.clang }}
+
+  build_op-kona:
+    uses: KOWX712/Realking_kernel_sm8250/.github/workflows/build_susfs.yml@op-staging_susfs155
+    with:
+      CODENAME: 'OPKona'
+      clang: ${{ github.event.inputs.clang }}
