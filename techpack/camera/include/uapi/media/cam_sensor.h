@@ -118,10 +118,13 @@ struct cam_ois_opcode {
 	uint32_t coeff;
 	uint32_t pheripheral;
 	uint32_t memory;
-	uint8_t  fw_addr_type;
-	uint8_t  is_addr_increase;
-	uint8_t  is_addr_indata;
-	uint8_t  fwversion;
+#if defined(CONFIG_BOARD_PSYCHE) || defined(CONFIG_BOARD_APOLLO)
+	uint32_t ois_get_data;
+#endif
+	uint8_t fw_addr_type;
+	uint8_t is_addr_increase;
+	uint8_t is_addr_indata;
+	uint8_t fwversion;
 	uint32_t fwchecksumsize;
 	uint32_t fwchecksum;
 } __attribute__((packed));

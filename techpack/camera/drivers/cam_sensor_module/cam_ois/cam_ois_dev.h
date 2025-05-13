@@ -27,7 +27,6 @@
 
 #define ENABLE_OIS_EIS
 #define OIS_DATA_ADDR 0x8A
-#define OIS_TELE_DATA_ADDR 0x1100
 
 enum cam_ois_state {
 	CAM_OIS_INIT,
@@ -85,16 +84,14 @@ struct cam_ois_intf_params {
 	struct cam_req_mgr_kmd_ops ops;
 	struct cam_req_mgr_crm_cb *crm_cb;
 };
+
 #ifdef ENABLE_OIS_EIS
 struct ois_data_eis_t {
-	uint64_t data_timestamp;
-	uint8_t  data[52];
-};
-struct ois_tele_data_eis_t {
-	uint64_t data_timestamp;
-	uint8_t  data[48];
+    uint64_t data_timestamp;
+    uint8_t  data[52];
 };
 #endif
+
 /**
  * struct cam_ois_ctrl_t - OIS ctrl private data
  * @device_name     :   ois device_name
@@ -142,7 +139,6 @@ struct cam_ois_ctrl_t {
 	uint8_t is_ois_pre_init;
 #ifdef ENABLE_OIS_EIS
 	struct ois_data_eis_t ois_data;
-	struct ois_tele_data_eis_t ois_tele_data;
 #endif
 };
 

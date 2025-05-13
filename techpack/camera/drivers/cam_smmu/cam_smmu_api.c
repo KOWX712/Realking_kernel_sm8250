@@ -3455,7 +3455,6 @@ static int cam_smmu_setup_cb(struct cam_context_bank_info *cb,
 		if (cb->discard_iova_start)
 			iommu_dma_reserve_iova(dev, cb->discard_iova_start,
 				cb->discard_iova_len);
-
 		cb->state = CAM_SMMU_ATTACH;
 	} else {
 		CAM_ERR(CAM_SMMU, "Context bank does not have IO region");
