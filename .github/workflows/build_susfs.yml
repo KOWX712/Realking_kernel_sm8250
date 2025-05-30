@@ -1,5 +1,5 @@
 name: build_susfs
-run-name: susfs build for ${{ inputs.CODENAME || github.event.inputs.CODENAME }}
+run-name: ${{ github.event.inputs.sukisu == 'true' && 'sukisu kpm' || 'susfs' }} build for ${{ inputs.CODENAME || github.event.inputs.CODENAME }}
 
 on:
   workflow_dispatch:
@@ -20,6 +20,11 @@ on:
           - 'ZyC Stable'
           - 'WeebX Stable'
           - 'WeebX Beta'
+      sukisu:
+        description: 'SukiSU + KPM'
+        required: true
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       CODENAME:
@@ -39,6 +44,7 @@ jobs:
     env:
       CODENAME: ${{ inputs.CODENAME || github.event.inputs.CODENAME }}
       clang: ${{ inputs.clang || github.event.inputs.clang }}
+      sukisu: ${{ github.event.inputs.sukisu || false }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -51,7 +57,11 @@ jobs:
       run: |
         # Setup artifact name
         TIME="$(date "+%Y%m%d%H%M")"
-        ZIP_NAME="RealKing-susfs-${{ env.CODENAME }}-$TIME"
+        if [[ "${{ env.sukisu }}" == "false" ]]; then
+          ZIP_NAME="RealKing-susfs-${{ env.CODENAME }}-$TIME"
+        else
+          ZIP_NAME="RealKing-susfs-kpm-${{ env.CODENAME }}-$TIME"
+        fi
         echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
         # Setup clang
@@ -68,12 +78,21 @@ jobs:
         wget "$CLANG_URL" -qO "clang.tar.gz"
         mkdir clang && tar -xvf clang.tar.gz -C clang && rm -rf clang.tar.gz
 
-        # Setup KernelSU-Next with susfs
-        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs-dev
+        if [[ "${{ env.sukisu }}" == "false" ]]; then
+          # Setup KernelSU-Next with susfs
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs-dev
 
-        # Add other ksu manager support
-        cd KernelSU-Next
-        curl -Ls https://raw.githubusercontent.com/KOWX712/files/refs/heads/main/0001-add-other-ksu-manager-support.patch | patch -p1
+          # Add other ksu manager support
+          cd KernelSU-Next
+          curl -Ls https://raw.githubusercontent.com/KOWX712/files/refs/heads/main/0001-add-other-ksu-manager-support.patch | patch -p1
+        else
+          # Setup SukiSU Ultra with susfs
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+          cd KernelSU
+
+          # Add other ksu manager support
+          curl -Ls https://raw.githubusercontent.com/KOWX712/files/main/0001-add-other-ksu-manager-support-for-sukisu-ultra.patch | patch -p1
+        fi
         cd ..
 
     - name: Build kernel
@@ -89,12 +108,26 @@ jobs:
         export ARCH=arm64
         export SUBARCH=arm64
         export KBUILD_COMPILER_STRING="$($DIR/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
-        red='\033[0;31m'
-        nocol='\033[0m'
+
+        if [[ "${{ env.sukisu }}" == "true" ]]; then
+          echo "CONFIG_KALLSYMS=y" >> "arch/arm64/configs/$KERNEL_DEFCONFIG"
+          echo "CONFIG_KALLSYMS_ALL=y" >> "arch/arm64/configs/$KERNEL_DEFCONFIG"
+          echo "CONFIG_KPM=y" >> "arch/arm64/configs/$KERNEL_DEFCONFIG"
+        fi
 
         # Kernel compilation
         make $KERNEL_DEFCONFIG O=out CC=clang
         make -j$(nproc --all) O=out CC=clang ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- NM=llvm-nm OBJDUMP=llvm-objdump STRIP=llvm-strip
+
+        if [[ "${{ env.sukisu }}" == "true" ]]; then
+          # Patch kpm
+          cd out/arch/arm64/boot
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+          chmod +x patch
+          ./patch
+          gzip -c oImage > Image.gz
+          cd $DIR
+        fi
 
         # Prepare artifact directory
         mkdir -p artifact
