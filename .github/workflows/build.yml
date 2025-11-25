@@ -1,0 +1,139 @@
+name: build
+run-name: build kernel for ${{ inputs.CODENAME || github.event.inputs.CODENAME }} ${{ inputs.ROM || github.event.inputs.ROM }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      CODENAME:
+        description: 'Device Codename (munch)'
+        default: 'munch'
+        required: true
+        type: choice
+        options:
+          - munch
+      ROM:
+        description: 'ROM Type (MIUI/AOSP)'
+        default: 'MIUI'
+        required: true
+        type: choice
+        options:
+          - MIUI
+          - AOSP
+      clang:
+        description: 'Clang option'
+        required: true
+        default: 'ZyC Stable'
+        type: choice
+        options:
+          - 'ZyC Stable'
+          - 'WeebX Stable'
+  workflow_call:
+    inputs:
+      CODENAME:
+        description: 'Device Codename (munch)'
+        required: true
+        type: string
+      ROM:
+        description: 'ROM Type (MIUI/AOSP)'
+        required: true
+        type: string
+      clang:
+        description: 'Clang option'
+        required: true
+        type: string
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      CODENAME: ${{ inputs.CODENAME || github.event.inputs.CODENAME }}
+      ROM: ${{ inputs.ROM || github.event.inputs.ROM }}
+      clang: ${{ inputs.clang || github.event.inputs.clang }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: 'munch'
+        fetch-depth: 1
+        submodules: 'recursive'
+
+    - name: Set up environment
+      run: |
+        # Setup artifact name
+        TIME="$(date "+%Y%m%d%H%M")"
+        ZIP_NAME="RealKing-${{ env.CODENAME }}-${{ env.ROM }}-$TIME"
+        echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+        # Setup clang
+        if [[ "${{ env.clang }}" == "ZyC Stable" ]]; then
+          CLANG_URL=$(curl -s https://raw.githubusercontent.com/v3kt0r-87/Clang-Stable/main/clang-zyc.txt)
+        elif [[ "${{ env.clang }}" == "WeebX Stable" ]]; then
+          CLANG_URL=$(curl -s https://raw.githubusercontent.com/v3kt0r-87/Clang-Stable/main/clang-weebx.txt)
+        else
+          echo "Invalid Clang option. Please use 'ZyC Stable' or 'WeebX Stable'."
+          exit 1
+        fi
+        wget "$CLANG_URL" -qO "clang.tar.gz"
+        mkdir clang && tar -xvf clang.tar.gz -C clang && rm -rf clang.tar.gz
+
+        # Setup backslashxx/KernelSU
+        curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash
+
+        # Let's make the version consist with KowSU
+        count=$(gh api "repos/KOWX712/KernelSU/commits?per_page=1" --include --silent 2>/dev/null | grep -i '^link:' | jq -Rr 'capture("page=(?<count>[0-9]+)>; rel=\"last\"").count')
+        version=$(( count + 30000 ))
+        [ -n $count ] && sed -i "s/-DKSU_VERSION=.*/-DKSU_VERSION=$version/" KernelSU/kernel/Makefile
+
+    - name: Build kernel
+      run: |
+        # Define variables
+        DIR=$(readlink -f .)
+        MAIN=$(readlink -f ${DIR}/..)
+        ZIMAGE_DIR="$(pwd)/out/arch/arm64/boot"
+        KERNEL_DEFCONFIG=munch_defconfig
+        LINKER="lld"
+        MAKE="./makeparallel"
+        BUILD_START=$(date +"%s")
+        TIME="$(date "+%Y%m%d-%H%M%S")"
+        red='\033[0;31m'
+        nocol='\033[0m'
+
+        export PATH="$DIR/clang/bin:$PATH"
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export KBUILD_COMPILER_STRING="$($DIR/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
+
+        # Set ROM variables
+        if [[ "${{ env.ROM }}" == "MIUI" ]]; then
+          echo -e "\e[31mChanging panel dimensions for HyperOS...\e[0m"
+          sed -i 's/qcom,mdss-pan-physical-width-dimension = <70>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+          sed -i 's/qcom,mdss-pan-physical-height-dimension = <155>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/vendor/qcom/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+        elif [[ "${{ env.ROM }}" == "AOSP" ]]; then
+          echo -e "\e[32mNo modifications needed for AOSP.\e[0m"
+        else
+          echo "Invalid ROM type. Please use 'MIUI' or 'AOSP'."
+          exit 1
+        fi
+
+        # Kernel compilation
+        make $KERNEL_DEFCONFIG O=out CC=clang
+        make -j$(nproc --all) O=out CC=clang ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- NM=llvm-nm OBJDUMP=llvm-objdump STRIP=llvm-strip
+
+        # Prepare artifact directory
+        mkdir -p artifact
+        cp -fp $ZIMAGE_DIR/Image.gz artifact
+        cp -fp $ZIMAGE_DIR/dtbo.img artifact
+        cp -fp $ZIMAGE_DIR/dtb artifact
+        cp -rp ./anykernel/* artifact
+
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ZIP_NAME }}
+        path: artifact
+        include-hidden-files: true
