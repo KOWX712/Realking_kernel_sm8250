@@ -5,7 +5,6 @@
 
 # Define variables
 DIR=$(readlink -f .)
-MAIN=$(readlink -f ${DIR}/..)
 ZIMAGE_DIR="$(pwd)/out/arch/arm64/boot"
 KERNEL_DEFCONFIG=munch_defconfig
 
@@ -20,7 +19,7 @@ nocol='\033[0m'
 
 
 # Check if the clang compiler is present, if not, clone it from GitHub
-if [ ! -d "$MAIN/clang" ]; then
+if [ ! -d "$DIR/clang" ]; then
     echo "No clang compiler found ... Cloning from GitHub"
 
     # Prompt user to choose Clang version
@@ -51,35 +50,43 @@ if [ ! -d "$MAIN/clang" ]; then
 
     # Download Clang archive
     echo "Downloading Clang ... Please Wait ..."
-    if ! wget -P "$MAIN" "$CLANG_URL" -O "$MAIN/$ARCHIVE_NAME"; then
+    if ! wget -P "$DIR" "$CLANG_URL" -O "$DIR/$ARCHIVE_NAME"; then
         echo "Failed to download Clang. Exiting..."
         exit 1
     fi
 
     # Create clang directory and extract archive
-    mkdir -p "$MAIN/clang"
-    if ! tar -xvf "$MAIN/$ARCHIVE_NAME" -C "$MAIN/clang"; then
+    mkdir -p "$DIR/clang"
+    if ! tar -xvf "$DIR/$ARCHIVE_NAME" -C "$DIR/clang"; then
         echo "Failed to extract Clang. Exiting..."
         exit 1
     fi
 
     # Clean up
-    rm -f "$MAIN/$ARCHIVE_NAME"
+    rm -f "$DIR/$ARCHIVE_NAME"
 
     # Verify directory creation
-    if [ ! -d "$MAIN/clang" ]; then
+    if [ ! -d "$DIR/clang" ]; then
         echo "Failed to create the 'clang' directory. Exiting..."
         exit 1
     fi
 fi
 
 # Set up environment variables for the build
-export PATH="$MAIN/clang/bin:$PATH"
+export PATH="$DIR/clang/bin:$PATH"
 export ARCH=arm64
 export SUBARCH=arm64
-export KBUILD_COMPILER_STRING="$($MAIN/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
+export KBUILD_COMPILER_STRING="$($DIR/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
 
 clear
+
+# Add KernelSU driver
+curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash
+
+# Let's make the version consist with KowSU
+count=$(gh api "repos/KOWX712/KernelSU/commits?per_page=1" --include --silent 2>/dev/null | grep -i '^link:' | jq -Rr 'capture("page=(?<count>[0-9]+)>; rel=\"last\"").count')
+version=$(( count + 30000 ))
+[ -n $count ] && sed -i "s/-DKSU_VERSION=.*/-DKSU_VERSION=$version/" KernelSU/kernel/Makefile
 
 # Display initialization message
 echo -e "$blue***********************************************"
@@ -90,7 +97,8 @@ echo -e "***********************************************$nocol"
 echo "Choose the build type:"
 echo "1. Hyper Os"
 echo "2. AOSP"
-read -p "Enter the number of your choice: " build_choice
+# read -p "Enter the number of your choice: " build_choice
+build_choice=1
 
 # Modify dtsi file if MIUI build is selected
 if [ "$build_choice" = "1" ]; then
@@ -140,4 +148,5 @@ revert_changes() {
 }
 
 # Revert changes after compiling kernel
-revert_changes
+# revert_changes
+git checkout -- .

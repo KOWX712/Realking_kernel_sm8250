@@ -135,6 +135,13 @@ all.config
 # fetched Android config fragments
 kernel/configs/android-*.cfg
 
+# clang
+/clang
+
+# KernelSU
+/KernelSU
+/drivers/kernelsu
+
 # Tech package directories
 #techpack/
 
